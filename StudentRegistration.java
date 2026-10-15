@@ -1,97 +1,323 @@
-
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
-public class StudentRegistration extends JFrame implements ActionListener {
+public class StudentRegistration extends JFrame {
 
-    JTextField nameField, rollField, courseField, emailField;
-    JButton registerButton;
+    private JTextField nameField;
+    private JPasswordField passwordField;
+    private JLabel statusLabel;
 
-    StudentRegistration() {
-        setTitle("Student Registration Portal");
-        setSize(450, 350);
+    private static final String FILE_NAME = "students.csv";
+
+    public StudentRegistration() {
+        setTitle("Student CRUD Operations");
+        setSize(500, 300);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        JPanel panel = new JPanel(new GridLayout(5, 2, 10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        setLayout(new BorderLayout(10, 10));
 
-        panel.add(new JLabel("Student Name:"));
+        JPanel formPanel = new JPanel(new GridLayout(3, 2, 10, 10));
+        formPanel.setBorder(
+                BorderFactory.createEmptyBorder(20, 20, 10, 20)
+        );
+
+        formPanel.add(new JLabel("Name:"));
         nameField = new JTextField();
-        panel.add(nameField);
+        formPanel.add(nameField);
 
-        panel.add(new JLabel("Roll Number:"));
-        rollField = new JTextField();
-        panel.add(rollField);
+        formPanel.add(new JLabel("Password:"));
+        passwordField = new JPasswordField();
+        formPanel.add(passwordField);
 
-        panel.add(new JLabel("Course:"));
-        courseField = new JTextField();
-        panel.add(courseField);
+        JButton createButton = new JButton("Create");
+        JButton readButton = new JButton("Read");
+        JButton updateButton = new JButton("Update");
+        JButton deleteButton = new JButton("Delete");
 
-        panel.add(new JLabel("Email:"));
-        emailField = new JTextField();
-        panel.add(emailField);
+        JPanel buttonPanel = new JPanel(new GridLayout(2, 2, 10, 10));
+        buttonPanel.add(createButton);
+        buttonPanel.add(readButton);
+        buttonPanel.add(updateButton);
+        buttonPanel.add(deleteButton);
 
-        registerButton = new JButton("Register");
-        registerButton.addActionListener(this);
+        statusLabel = new JLabel("Enter name and password.");
+        statusLabel.setBorder(
+                BorderFactory.createEmptyBorder(0, 20, 15, 20)
+        );
 
-        panel.add(new JLabel(""));
-        panel.add(registerButton);
+        add(formPanel, BorderLayout.NORTH);
+        add(buttonPanel, BorderLayout.CENTER);
+        add(statusLabel, BorderLayout.SOUTH);
 
-        add(panel);
+        createButton.addActionListener(e -> createRecord());
+        readButton.addActionListener(e -> readRecords());
+        updateButton.addActionListener(e -> updateRecord());
+        deleteButton.addActionListener(e -> deleteRecord());
+
         setVisible(true);
     }
 
-    @Override
-    public void actionPerformed(ActionEvent e) {
+    // CREATE: Add a new record
+    private void createRecord() {
         String name = nameField.getText().trim();
-        String roll = rollField.getText().trim();
-        String course = courseField.getText().trim();
-        String email = emailField.getText().trim();
+        char[] passwordChars = passwordField.getPassword();
 
-        if (name.isEmpty() || roll.isEmpty()
-                || course.isEmpty() || email.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    this, "Please fill all the fields!");
+        if (name.isEmpty() || passwordChars.length == 0) {
+            statusLabel.setText("Enter both name and password.");
+            java.util.Arrays.fill(passwordChars, '\0');
             return;
         }
 
-        File file = new File("students.csv");
-        boolean addHeader = !file.exists() || file.length() == 0;
+        String password = new String(passwordChars);
+        java.util.Arrays.fill(passwordChars, '\0');
 
-        try (PrintWriter writer =
-                     new PrintWriter(new FileWriter(file, true))) {
+        try {
+            List<String[]> records = loadRecords();
 
-            if (addHeader) {
-                writer.println("Name,Roll Number,Course,Email");
+            for (String[] record : records) {
+                if (record[0].equalsIgnoreCase(name)) {
+                    statusLabel.setText("Name already exists.");
+                    return;
+                }
             }
 
-            writer.println(
-                    "\"" + name.replace("\"", "\"\"") + "\","
-                            + "\"" + roll.replace("\"", "\"\"") + "\","
-                            + "\"" + course.replace("\"", "\"\"") + "\","
-                            + "\"" + email.replace("\"", "\"\"") + "\""
-            );
+            records.add(new String[]{name, password});
+            saveRecords(records);
 
-            JOptionPane.showMessageDialog(
-                    this, "Registration Successful!");
-
-            nameField.setText("");
-            rollField.setText("");
-            courseField.setText("");
-            emailField.setText("");
+            statusLabel.setText("Record created successfully!");
+            clearFields();
 
         } catch (IOException ex) {
-            JOptionPane.showMessageDialog(
-                    this, "Error saving student details!");
+            showError(ex);
         }
     }
 
+    // READ: Display all records
+    private void readRecords() {
+        try {
+            List<String[]> records = loadRecords();
+
+            if (records.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this, "No records found."
+                );
+                return;
+            }
+
+            StringBuilder output = new StringBuilder();
+            output.append("Name\tPassword\n");
+            output.append("-------------------------------\n");
+
+            for (String[] record : records) {
+                output.append(record[0])
+                        .append("\t")
+                        .append(record[1])
+                        .append("\n");
+            }
+
+            JTextArea area = new JTextArea(output.toString(), 15, 35);
+            area.setEditable(false);
+
+            JOptionPane.showMessageDialog(
+                    this,
+                    new JScrollPane(area),
+                    "Student Records",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
+
+        } catch (IOException ex) {
+            showError(ex);
+        }
+    }
+
+    // UPDATE: Change password for an existing name
+    private void updateRecord() {
+        String name = nameField.getText().trim();
+        char[] passwordChars = passwordField.getPassword();
+
+        if (name.isEmpty() || passwordChars.length == 0) {
+            statusLabel.setText("Enter name and new password.");
+            java.util.Arrays.fill(passwordChars, '\0');
+            return;
+        }
+
+        String newPassword = new String(passwordChars);
+        java.util.Arrays.fill(passwordChars, '\0');
+
+        try {
+            List<String[]> records = loadRecords();
+            boolean found = false;
+
+            for (String[] record : records) {
+                if (record[0].equalsIgnoreCase(name)) {
+                    record[1] = newPassword;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                saveRecords(records);
+                statusLabel.setText("Password updated successfully!");
+                clearFields();
+            } else {
+                statusLabel.setText("Name not found.");
+            }
+
+        } catch (IOException ex) {
+            showError(ex);
+        }
+    }
+
+    // DELETE: Remove a record by name
+    private void deleteRecord() {
+        String name = nameField.getText().trim();
+
+        if (name.isEmpty()) {
+            statusLabel.setText("Enter the name to delete.");
+            return;
+        }
+
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Delete the record for " + name + "?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION
+        );
+
+        if (choice != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        try {
+            List<String[]> records = loadRecords();
+            boolean removed = records.removeIf(
+                    record -> record[0].equalsIgnoreCase(name)
+            );
+
+            if (removed) {
+                saveRecords(records);
+                statusLabel.setText("Record deleted successfully!");
+                clearFields();
+            } else {
+                statusLabel.setText("Name not found.");
+            }
+
+        } catch (IOException ex) {
+            showError(ex);
+        }
+    }
+
+    // Read CSV records
+    private List<String[]> loadRecords() throws IOException {
+        List<String[]> records = new ArrayList<>();
+        File file = new File(FILE_NAME);
+
+        if (!file.exists()) {
+            return records;
+        }
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(
+                        new FileInputStream(file),
+                        StandardCharsets.UTF_8))) {
+
+            String line;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (firstLine) {
+                    firstLine = false;
+                    if (line.equals("\"Name\",\"Password\"")) {
+                        continue;
+                    }
+                }
+
+                List<String> fields = parseCsvLine(line);
+
+                if (fields.size() >= 2) {
+                    records.add(new String[]{
+                            fields.get(0), fields.get(1)
+                    });
+                }
+            }
+        }
+
+        return records;
+    }
+
+    // Save all records back to CSV
+    private void saveRecords(List<String[]> records)
+            throws IOException {
+
+        try (PrintWriter writer = new PrintWriter(
+                new OutputStreamWriter(
+                        new FileOutputStream(FILE_NAME),
+                        StandardCharsets.UTF_8))) {
+
+            writer.println("\"Name\",\"Password\"");
+
+            for (String[] record : records) {
+                writer.println(csv(record[0]) + "," + csv(record[1]));
+            }
+        }
+    }
+
+    // Quote and escape CSV values
+    private String csv(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+
+    // Parse quoted CSV fields, including commas and escaped quotes
+    private List<String> parseCsvLine(String line) {
+        List<String> fields = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean quoted = false;
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+
+            if (c == '"') {
+                if (quoted && i + 1 < line.length()
+                        && line.charAt(i + 1) == '"') {
+                    field.append('"');
+                    i++;
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (c == ',' && !quoted) {
+                fields.add(field.toString());
+                field.setLength(0);
+            } else {
+                field.append(c);
+            }
+        }
+
+        fields.add(field.toString());
+        return fields;
+    }
+
+    private void clearFields() {
+        nameField.setText("");
+        passwordField.setText("");
+    }
+
+    private void showError(IOException ex) {
+        statusLabel.setText("File operation failed!");
+        JOptionPane.showMessageDialog(
+                this,
+                ex.getMessage(),
+                "File Error",
+                JOptionPane.ERROR_MESSAGE
+        );
+    }
+
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            new StudentRegistration();
-        });
+        SwingUtilities.invokeLater(StudentRegistration::new);
     }
 }
